@@ -153,14 +153,12 @@ struct ProcessorBuilder {
 }
 
 impl ProcessorBuilder {
-    fn merge(self, other: &Self) -> Self {
-        Self {
-            core: self.core.or(other.core.clone()),
-            units: self.units.or(other.units),
-            name: self.name.or(other.name.clone()),
-            fpu: self.fpu.or(other.fpu.clone()),
-            mpu: self.mpu.or(other.mpu.clone()),
-        }
+    fn merge(&mut self, other: &Self) {
+        self.core = self.core.clone().or(other.core.clone());
+        self.units = self.units.or(other.units);
+        self.name = self.name.clone().or(other.name.clone());
+        self.fpu = self.fpu.clone().or(other.fpu.clone());
+        self.mpu = self.mpu.clone().or(other.mpu.clone());
     }
     fn build(self, debugs: &[Debug]) -> Result<Vec<Processor>, Error> {
         let units = self.units.unwrap_or(1);
@@ -227,17 +225,26 @@ impl FromElem for ProcessorBuilder {
 struct ProcessorsBuilder(Vec<ProcessorBuilder>);
 
 impl ProcessorsBuilder {
-    fn merge(mut self, parent: &Option<Self>) -> Result<Self, Error> {
+    fn merge(self, parent: &Option<Self>) -> Result<Self, Error> {
         if let Some(parent) = parent {
-            if let [parent] = &parent.0[..] {
-                self.0 = self.0.into_iter().map(|x| x.merge(parent)).collect();
-            } else {
-                Err(format_err!(
-                    "Support for two parent processors not implemented!"
-                ))?;
+            let mut current = self
+                .0
+                .into_iter()
+                .map(|p| (p.name.clone(), p))
+                .collect::<HashMap<Option<String>, ProcessorBuilder>>();
+
+            for parent in parent.0.iter() {
+                let current = current
+                    .entry(parent.name.clone())
+                    .or_insert_with(|| parent.clone());
+                current.merge(parent);
             }
+
+            let result = current.into_values().collect();
+            Ok(Self(result))
+        } else {
+            Ok(self)
         }
-        Ok(self)
     }
 
     fn merge_into(&mut self, other: Self) {
